@@ -60,20 +60,22 @@ impl<'a> LayoutBuilder<'a> {
 pub trait Layout {
     fn components(&mut self) -> Vec<(Transform, &mut dyn Component)>;
 
+    #[allow(unused_variables)]
     /// Called before rendering children.
-    fn before_render(&mut self) {}
+    fn before_render(&mut self, tr: &Transform, target: &mut Window) {}
+    #[allow(unused_variables)]
     /// Called after rendering children.
-    fn after_render(&mut self) {}
+    fn after_render(&mut self, tr: &Transform, target: &mut Window) {}
 }
 
 impl<T: Layout> Component for T {
     fn render(&mut self, tr: &Transform, target: &mut Window) {
-        self.before_render();
+        self.before_render(tr, target);
         for (child_tr, child) in self.components() {
             let tr = tr * child_tr;
             child.render(&tr, target);
         }
-        self.after_render();
+        self.after_render(tr, target);
     }
 
     fn touch(&mut self, touch: &Touch) -> anyhow::Result<bool> {

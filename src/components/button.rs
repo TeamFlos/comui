@@ -2,9 +2,11 @@ use std::time::Instant;
 
 use macroquad::input::TouchPhase;
 
-use crate::{component::Component, shading::IntoShading, utils::Transform, window::Window};
+use crate::{component::Component, utils::Transform, window::Window};
 
 /// A Quadrilateral Button component.
+///
+/// Detects touch events from (-0.5, -0.5) to (0.5, 0.5) in its local coordinate system.
 pub struct QuadButton {
     pub pressed: bool,
     pub touch_id: Option<u64>,
@@ -59,7 +61,12 @@ impl Component for QuadButton {
         };
         if should_consume {
             self.triggered = true;
+            self.touch_id = None;
         }
+        Ok(should_consume)
+    }
+
+    fn render(&mut self, _tr: &Transform, _target: &mut Window) {
         let touching = self.touch_id.is_some();
         if self.pressed != touching {
             self.pressed = touching;
@@ -69,17 +76,5 @@ impl Component for QuadButton {
                 self.release_start_at = Instant::now();
             }
         }
-        Ok(should_consume)
-    }
-
-    fn render(&mut self, tr: &Transform, target: &mut Window) {
-        let vertices = [
-            tr.transform_point(&nalgebra::Point2::new(-0.5, -0.5)),
-            tr.transform_point(&nalgebra::Point2::new(0.5, -0.5)),
-            tr.transform_point(&nalgebra::Point2::new(0.5, 0.5)),
-            tr.transform_point(&nalgebra::Point2::new(-0.5, 0.5)),
-        ];
-        // TODO: Color customization
-        target.fill_quad(vertices, macroquad::color::BLACK.into_shading());
     }
 }
