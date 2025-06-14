@@ -10,6 +10,13 @@ pub struct QuadButton {
     pub touch_id: Option<u64>,
     pub press_start_at: Instant,
     pub release_start_at: Instant,
+    /// A flag indicating whether the button was triggered.
+    /// You will need to manually reset this flag, which means
+    /// this button is ready to be triggered again.
+    ///
+    /// We don't use a callback here because it usually leads to
+    /// self-referential problems.
+    pub triggered: bool,
 }
 
 impl Default for QuadButton {
@@ -19,6 +26,7 @@ impl Default for QuadButton {
             touch_id: None,
             press_start_at: Instant::now(),
             release_start_at: Instant::now(),
+            triggered: false,
         }
     }
 }
@@ -49,6 +57,9 @@ impl Component for QuadButton {
             }
             TouchPhase::Ended => self.touch_id == Some(touch.id) && inside,
         };
+        if should_consume {
+            self.triggered = true;
+        }
         let touching = self.touch_id.is_some();
         if self.pressed != touching {
             self.pressed = touching;
@@ -61,7 +72,7 @@ impl Component for QuadButton {
         Ok(should_consume)
     }
 
-    fn render(&self, tr: &Transform, target: &mut Window) {
+    fn render(&mut self, tr: &Transform, target: &mut Window) {
         let vertices = [
             tr.transform_point(&nalgebra::Point2::new(-0.5, -0.5)),
             tr.transform_point(&nalgebra::Point2::new(0.5, -0.5)),

@@ -5,5 +5,5 @@ pub trait Component {
     fn touch(&mut self, touch: &macroquad::prelude::Touch) -> anyhow::Result<bool>;
 
     /// `tr`: (x_comp, y_comp) -> (x_global, y_global)
-    fn render(&self, tr: &Transform, target: &mut Window);
+    fn render(&mut self, tr: &Transform, target: &mut Window);
 }

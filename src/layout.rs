@@ -16,14 +16,14 @@ fn transform_touch(touch: &Touch, tr: &Transform) -> Touch {
 }
 
 #[derive(Default)]
-pub struct LayoutBuilder {
+pub struct LayoutBuilder<'a> {
     /// (Transform, Child)
     ///
     /// Transform is a 3x3 matrix, used for child_coord -> parent_coord
-    inner: Vec<(Transform, Box<dyn Component>)>,
+    inner: Vec<(Transform, &'a mut dyn Component)>,
 }
 
-impl LayoutBuilder {
+impl<'a> LayoutBuilder<'a> {
     #[must_use = "Call `build` to build the layout"]
     pub fn new() -> Self {
         Self { inner: vec![] }
@@ -31,7 +31,7 @@ impl LayoutBuilder {
 
     #[must_use = "Call `build` to build the layout"]
     /// Add a child with a transform.
-    pub fn at_transform(self, tr: Transform, child: Box<dyn Component>) -> Self {
+    pub fn at_transform(self, tr: Transform, child: &'a mut dyn Component) -> Self {
         let mut new_inner = self.inner;
         new_inner.push((tr, child));
         Self { inner: new_inner }
@@ -44,7 +44,7 @@ impl LayoutBuilder {
     ///
     /// The coordinate system in the rectangle is normalized, i.e. (0, 0) is the center,
     /// and (-0.5, -0.5) is the bottom-left corner, (0.5, 0.5) is the top-right corner.
-    pub fn at_rect(self, rect: (f32, f32, f32, f32), child: Box<dyn Component>) -> Self {
+    pub fn at_rect(self, rect: (f32, f32, f32, f32), child: &'a mut dyn Component) -> Self {
         let (cx, cy, w, h) = rect;
         let tr = Transform::new_translation(&nalgebra::Vector2::new(cx, cy))
             * Transform::new_nonuniform_scaling(&nalgebra::Vector2::new(w, h));
@@ -52,19 +52,32 @@ impl LayoutBuilder {
     }
 
     #[must_use = "Call `render` to do the actual drawing"]
-    pub fn build(self) -> Layout {
-        Layout { inner: self.inner }
+    pub fn build(self) -> Vec<(Transform, &'a mut dyn Component)> {
+        self.inner
     }
 }
 
-// ! TODO: this should be a trait
-pub struct Layout {
-    inner: Vec<(Transform, Box<dyn Component>)>,
+pub trait Layout {
+    fn components(&mut self) -> Vec<(Transform, &mut dyn Component)>;
+
+    /// Called before rendering children.
+    fn before_render(&mut self) {}
+    /// Called after rendering children.
+    fn after_render(&mut self) {}
 }
 
-impl Component for Layout {
+impl<T: Layout> Component for T {
+    fn render(&mut self, tr: &Transform, target: &mut Window) {
+        self.before_render();
+        for (child_tr, child) in self.components() {
+            let tr = tr * child_tr;
+            child.render(&tr, target);
+        }
+        self.after_render();
+    }
+
     fn touch(&mut self, touch: &Touch) -> anyhow::Result<bool> {
-        for (child_tr, child) in self.inner.iter_mut() {
+        for (child_tr, child) in self.components() {
             if let Some(inv_tr) = child_tr.try_inverse() {
                 if child.touch(&transform_touch(touch, &inv_tr))? {
                     return Ok(true);
@@ -72,12 +85,5 @@ impl Component for Layout {
             }
         }
         Ok(false)
-    }
-
-    fn render(&self, tr: &Transform, target: &mut Window) {
-        for (child_tr, child) in &self.inner {
-            let tr = tr * child_tr;
-            child.render(&tr, target);
-        }
     }
 }
