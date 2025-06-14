@@ -15,6 +15,7 @@ fn transform_touch(touch: &Touch, tr: &Transform) -> Touch {
     }
 }
 
+#[must_use = "Call `build` to build the layout"]
 #[derive(Default)]
 pub struct LayoutBuilder<'a> {
     /// (Transform, Child)
@@ -24,12 +25,10 @@ pub struct LayoutBuilder<'a> {
 }
 
 impl<'a> LayoutBuilder<'a> {
-    #[must_use = "Call `build` to build the layout"]
     pub fn new() -> Self {
         Self { inner: vec![] }
     }
 
-    #[must_use = "Call `build` to build the layout"]
     /// Add a child with a transform.
     pub fn at_transform(self, tr: Transform, child: &'a mut dyn Component) -> Self {
         let mut new_inner = self.inner;
@@ -37,7 +36,6 @@ impl<'a> LayoutBuilder<'a> {
         Self { inner: new_inner }
     }
 
-    #[must_use = "Call `build` to build the layout"]
     /// Rectangle representation:
     ///
     /// (center_x, center_y, width, height)

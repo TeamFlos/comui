@@ -19,6 +19,7 @@ use crate::{
     utils::Point,
 };
 
+#[must_use = "Call `commit` to do the actual drawing"]
 pub struct VertexBuilder<S> {
     vertices: Vec<Vertex>,
     indices: Vec<u16>,
@@ -26,7 +27,6 @@ pub struct VertexBuilder<S> {
 }
 
 impl<S: Shading> VertexBuilder<S> {
-    #[must_use = "Call `commit` to do the actual drawing"]
     pub fn new(shading: S) -> Self {
         Self {
             vertices: Vec::new(),
@@ -35,14 +35,12 @@ impl<S: Shading> VertexBuilder<S> {
         }
     }
 
-    #[must_use = "Call `commit` to do the actual drawing"]
     pub fn add(mut self, x: f32, y: f32, alpha: f32) -> Self {
         self.vertices
             .push(self.shading.new_vertex(&Point::new(x, y), alpha));
         self
     }
 
-    #[must_use = "Call `commit` to do the actual drawing"]
     pub fn triangle(mut self, a: u16, b: u16, c: u16) -> Self {
         self.indices.push(a);
         self.indices.push(b);
