@@ -68,6 +68,9 @@ pub struct Window {
     fill_options: FillOptions,
     stroke_tessellator: StrokeTessellator,
     stroke_options: StrokeOptions,
+
+    pub(crate) font_system: cosmic_text::FontSystem,
+    pub(crate) swash_cache: cosmic_text::SwashCache,
 }
 
 impl Default for Window {
@@ -82,6 +85,8 @@ impl Default for Window {
             fill_options: FillOptions::tolerance(Self::DEFAULT_TOLERANCE),
             stroke_tessellator: StrokeTessellator::new(),
             stroke_options: StrokeOptions::default(),
+            font_system: cosmic_text::FontSystem::new(),
+            swash_cache: cosmic_text::SwashCache::new(),
         }
     }
 }

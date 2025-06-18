@@ -1,6 +1,6 @@
 use comui::{
     component::Component,
-    components::button::QuadButton,
+    components::{button::QuadButton, label::Label},
     input::subscriber_id,
     layout::{Layout, LayoutBuilder},
     shading::IntoShading,
@@ -15,7 +15,8 @@ use lyon::{
 use macroquad::{
     color::{self, Color, WHITE},
     input::{
-        is_mouse_button_down, mouse_position, utils::repeat_all_miniquad_input, MouseButton, Touch, TouchPhase
+        MouseButton, Touch, TouchPhase, is_mouse_button_down, mouse_position,
+        utils::repeat_all_miniquad_input,
     },
     math::vec2,
     miniquad::EventHandler,
@@ -126,10 +127,22 @@ impl Layout for MyFancyBtn {
     }
 }
 
-#[derive(Default)]
 struct Main {
     clicked: bool,
     fancy_btn: MyFancyBtn,
+    label: Label,
+}
+
+impl Default for Main {
+    fn default() -> Self {
+        Self {
+            clicked: false,
+            fancy_btn: MyFancyBtn::default(),
+            label: Label::new("A FANCY Button, 😲这么强？！")
+                .with_font_size(20.0)
+                .with_color(color::BLACK),
+        }
+    }
 }
 
 impl Layout for Main {
@@ -144,6 +157,7 @@ impl Layout for Main {
                 ),
                 &mut self.fancy_btn,
             )
+            .at_rect((100.0, 250.0, 100.0, 100.0), &mut self.label)
             .build()
     }
 
