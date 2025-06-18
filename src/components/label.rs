@@ -1,5 +1,6 @@
 use cosmic_text::{Attrs, Buffer, Metrics, Shaping};
 use macroquad::color::Color;
+use tracing::{Level, instrument, span};
 
 use crate::{
     shading::IntoShading,
@@ -62,7 +63,7 @@ impl Label {
         self.area_height = Some(height);
         self
     }
-
+    #[instrument(skip(self, target))]
     pub fn render_text(&self, target: &mut Window, origin: Point) {
         let metrics = Metrics::new(self.font_size, self.line_height);
         let font_system = &mut target.font_system;
@@ -79,7 +80,9 @@ impl Label {
         buffer.shape_until_scroll(true);
         let logical_ppi = target.logical_ppi;
 
-        // Draw the buffer (for performance, instead use SwashCache directly)
+        let span = span!(Level::DEBUG, "Draw buffers");
+        let _enter = span.enter();
+        // Draw the buffer
         buffer.draw(
             &mut target.swash_cache,
             macroquad_color_to_cosmic_color(self.color),
