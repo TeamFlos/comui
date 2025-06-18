@@ -40,7 +40,7 @@ fn config() -> macroquad::prelude::Conf {
     macroquad::prelude::Conf {
         high_dpi: true,
         sample_count: 4,
-        window_title: "A FANCY Button".to_string(),
+        window_title: "Label example".to_string(),
         ..Default::default()
     }
 }

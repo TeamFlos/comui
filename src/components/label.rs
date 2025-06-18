@@ -77,6 +77,7 @@ impl Label {
         buffer.set_text(&self.text, &attrs, Shaping::Advanced);
         // Perform shaping as desired
         buffer.shape_until_scroll(true);
+        let logical_ppi = target.logical_ppi;
 
         // Draw the buffer (for performance, instead use SwashCache directly)
         buffer.draw(
@@ -88,10 +89,17 @@ impl Label {
                 // They are borrowing different parts of `Window`.
                 let mut x = x as f32;
                 let mut y = y as f32;
-                let w = w as f32;
-                let h = h as f32;
+                let mut w = w as f32;
+                let mut h = h as f32;
                 x += origin.x;
                 y += origin.y;
+
+                // high-dpi support
+                // TODO: this syntax is too ugly.
+                x *= logical_ppi;
+                y *= logical_ppi;
+                w *= logical_ppi;
+                h *= logical_ppi;
 
                 {
                     VertexBuilder::new(cosmic_color_to_macroquad_color(color).into_shading())
