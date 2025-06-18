@@ -65,13 +65,19 @@ impl Label {
     }
     #[instrument(skip(self, target))]
     pub fn render_text(&self, target: &mut Window, origin: Point) {
-        let metrics = Metrics::new(self.font_size, self.line_height);
+        let metrics = Metrics::relative(
+            self.font_size * target.logical_ppi,
+            self.line_height / self.font_size,
+        );
         let font_system = &mut target.font_system;
         let mut buffer = Buffer::new(font_system, metrics);
         // Borrow buffer together with the font system for more convenient method calls
         let mut buffer = buffer.borrow_with(font_system);
         // Set a size for the text buffer, in pixels
-        buffer.set_size(self.area_width, self.area_height);
+        buffer.set_size(
+            self.area_width.map(|w| w * target.logical_ppi),
+            self.area_height.map(|h| h * target.logical_ppi),
+        );
         // Attributes indicate what font to choose
         let attrs = Attrs::new();
         // Add some text!
@@ -99,10 +105,10 @@ impl Label {
 
                 // high-dpi support
                 // TODO: this syntax is too ugly.
-                x *= logical_ppi;
-                y *= logical_ppi;
-                w *= logical_ppi;
-                h *= logical_ppi;
+                x /= logical_ppi;
+                y /= logical_ppi;
+                w /= logical_ppi;
+                h /= logical_ppi;
 
                 {
                     VertexBuilder::new(cosmic_color_to_macroquad_color(color).into_shading())
