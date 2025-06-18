@@ -15,7 +15,8 @@ use lyon::{
 use macroquad::{
     color::{self, Color, WHITE},
     input::{
-        is_mouse_button_down, mouse_position, utils::repeat_all_miniquad_input, MouseButton, Touch, TouchPhase
+        MouseButton, Touch, TouchPhase, is_mouse_button_down, mouse_position,
+        utils::repeat_all_miniquad_input,
     },
     math::vec2,
     miniquad::EventHandler,
@@ -129,7 +130,7 @@ impl Layout for MyFancyBtn {
 struct Main {
     clicked: bool,
     fancy_btn: MyFancyBtn,
-    label: Label
+    label: Label,
 }
 
 impl Default for Main {

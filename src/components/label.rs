@@ -11,6 +11,12 @@ pub struct Label {
     pub text: String,
     pub font_size: f32,
     pub line_height: f32,
+    /// The width for the area to show the label.
+    /// Set it to `None` for infinite size.
+    pub area_width: Option<f32>,
+    /// The height for the area to show the label.
+    /// Set it to `None` for infinite size.
+    pub area_height: Option<f32>,
     pub color: Color,
 }
 impl Default for Label {
@@ -19,6 +25,8 @@ impl Default for Label {
             text: String::new(),
             font_size: 16.,
             line_height: 20.,
+            area_height: None,
+            area_width: None,
             color: Color::from_rgba(255, 255, 255, 255), // Default white color
         }
     }
@@ -46,6 +54,15 @@ impl Label {
         self
     }
 
+    pub fn with_preferred_width(mut self, width: f32) -> Self {
+        self.area_width = Some(width);
+        self
+    }
+    pub fn with_preferred_height(mut self, height: f32) -> Self {
+        self.area_height = Some(height);
+        self
+    }
+
     pub fn render_text(&self, target: &mut Window, origin: Point) {
         let metrics = Metrics::new(self.font_size, self.line_height);
         let font_system = &mut target.font_system;
@@ -53,7 +70,7 @@ impl Label {
         // Borrow buffer together with the font system for more convenient method calls
         let mut buffer = buffer.borrow_with(font_system);
         // Set a size for the text buffer, in pixels
-        buffer.set_size(None, None);
+        buffer.set_size(self.area_width, self.area_height);
         // Attributes indicate what font to choose
         let attrs = Attrs::new();
         // Add some text!
@@ -76,14 +93,13 @@ impl Label {
                 x += origin.x;
                 y += origin.y;
 
-
                 {
                     VertexBuilder::new(cosmic_color_to_macroquad_color(color).into_shading())
                         .add(x, y, 1.0)
                         .add(x, y + h, 1.0)
                         .add(x + w, y + h, 1.0)
                         .add(x + w, y, 1.0)
-                        .triangle(2,1,0)
+                        .triangle(2, 1, 0)
                         .triangle(0, 2, 3)
                         .commit();
                 };
@@ -99,4 +115,3 @@ impl crate::component::Component for Label {
         Ok(false)
     }
 }
-
