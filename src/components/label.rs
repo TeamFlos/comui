@@ -1,13 +1,14 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use cosmic_text::{Attrs, Buffer, Metrics, Shaping};
 use macroquad::{
-    color::Color, math::vec2, prelude::debug, text::draw_text, texture::{draw_texture_ex, DrawTextureParams}
+    color::Color,
+    math::vec2,
+    texture::{DrawTextureParams, draw_texture_ex},
 };
 use tracing::{Level, instrument, span};
 
-use crate::{
-    utils::Point,
-    window::Window,
-};
+use crate::{utils::Point, window::Window};
 
 pub struct Label {
     pub text: String,
@@ -20,7 +21,22 @@ pub struct Label {
     /// Set it to `None` for infinite size.
     pub area_height: Option<f32>,
     pub color: Color,
+    cached_buffer: Option<(u64, Buffer)>,
 }
+
+#[derive(Hash)]
+struct HashingKey {
+    pub font_size: u32,
+    pub line_height: u32,
+    /// The width for the area to show the label.
+    /// Set it to `None` for infinite size.
+    pub area_width: Option<u32>,
+    /// The height for the area to show the label.
+    /// Set it to `None` for infinite size.
+    pub area_height: Option<u32>,
+    // pub color: Color,
+}
+
 impl Default for Label {
     fn default() -> Self {
         Self {
@@ -30,6 +46,7 @@ impl Default for Label {
             area_height: None,
             area_width: None,
             color: Color::from_rgba(255, 255, 255, 255), // Default white color
+            cached_buffer: None,
         }
     }
 }
@@ -65,27 +82,17 @@ impl Label {
         self
     }
     #[instrument(skip(self, target))]
-    pub fn render_text(&self, target: &mut Window, origin: Point) {
-        let metrics = Metrics::relative(
-            self.font_size * target.logical_ppi,
-            self.line_height / self.font_size,
-        );
-        let font_system = &mut target.font_system;
-        let mut buffer = Buffer::new(font_system, metrics);
-        // Borrow buffer together with the font system for more convenient method calls
-        let mut buffer_borrowed = buffer.borrow_with(font_system);
-        // Set a size for the text buffer, in pixels
-        buffer_borrowed.set_size(
-            self.area_width.map(|w| w * target.logical_ppi),
-            self.area_height.map(|h| h * target.logical_ppi),
-        );
-        // Attributes indicate what font to choose
-        let attrs = Attrs::new();
-        // Add some text!
-        buffer_borrowed.set_text(&self.text, &attrs, Shaping::Advanced);
-        // Perform shaping as desired
-        buffer_borrowed.shape_until_scroll(true);
-
+    pub fn render_text(&mut self, target: &mut Window, origin: Point) {
+        if self.cached_buffer.is_none() {
+            self.cached_buffer = Some(self.layout_text(target));
+        }
+        let hash = self.cached_buffer.as_mut().unwrap().0;
+        if self.state_hash() != hash {
+            let result = self.layout_text(target);
+            self.cached_buffer = Some(result);
+        }
+        let buffer_cache = self.cached_buffer.as_mut().unwrap();
+        let (_, buffer) = buffer_cache;
         let span = span!(Level::DEBUG, "Draw buffers");
         let _enter = span.enter();
         for run in buffer.layout_runs() {
@@ -117,10 +124,46 @@ impl Label {
                         dest_size: Some(vec2(placement.width as f32, placement.height as f32)),
                         source: Some(rect),
                         ..Default::default()
-                    }
+                    },
                 );
             }
         }
+    }
+    #[instrument(skip(self, target))]
+    fn layout_text(&self, target: &mut Window) -> (u64, Buffer) {
+        let metrics = Metrics::relative(
+            self.font_size * target.logical_ppi,
+            self.line_height / self.font_size,
+        );
+        let font_system = &mut target.font_system;
+        let mut buffer = Buffer::new(font_system, metrics);
+        // Borrow buffer together with the font system for more convenient method calls
+        let mut buffer_borrowed = buffer.borrow_with(font_system);
+        // Set a size for the text buffer, in pixels
+        buffer_borrowed.set_size(
+            self.area_width.map(|w| w * target.logical_ppi),
+            self.area_height.map(|h| h * target.logical_ppi),
+        );
+        // Attributes indicate what font to choose
+        let attrs = Attrs::new();
+        // Add some text!
+        buffer_borrowed.set_text(&self.text, &attrs, Shaping::Advanced);
+        // Perform shaping as desired
+        buffer_borrowed.shape_until_scroll(true);
+        (self.state_hash(), buffer)
+    }
+
+    fn state_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        let hashing_key = HashingKey {
+            font_size: self.font_size.to_bits(),
+            line_height: self.line_height.to_bits(),
+            area_height: self.area_height.map(|i| i.to_bits()),
+            area_width: self.area_width.map(|i| i.to_bits()),
+        };
+        self.text.hash(&mut hasher);
+        hashing_key.hash(&mut hasher);
+        hasher.finish()
     }
 }
 impl crate::component::Component for Label {

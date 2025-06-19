@@ -59,6 +59,7 @@ let mut window = Window::default();
     loop {
         clear_background(BLUE);
         main_view.render(&Matrix3::identity(), &mut window);
+        window.update();
         tracing::event!(
             tracing::Level::INFO,
             message = "finished frame",

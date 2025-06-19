@@ -1,7 +1,7 @@
 //! [`Atlas`], [`Sprite`] and [`SpriteKey`] are copied from macroquad source code,
 //! licensed under MIT OR APACHE-2.0.
 use cosmic_text::{CacheKey, FontSystem, Placement, SwashCache};
-use macroquad::{color::Color, math::Rect, miniquad::{self, TextureId}, prelude::debug, texture::Image, window::get_internal_gl};
+use macroquad::{color::Color, math::Rect, miniquad::{self, TextureId}, texture::Image, window::get_internal_gl};
 
 use std::collections::HashMap;
 

@@ -15,7 +15,9 @@ use macroquad::{
 };
 
 use crate::{
-    shading::{ShadedConstructor, Shading}, text::FontAtlas, utils::Point
+    shading::{ShadedConstructor, Shading},
+    text::FontAtlas,
+    utils::Point,
 };
 
 #[must_use = "Call `commit` to do the actual drawing"]
@@ -87,7 +89,7 @@ impl Default for Window {
             stroke_options: StrokeOptions::default(),
             font_system: cosmic_text::FontSystem::new(),
             swash_cache: cosmic_text::SwashCache::new(),
-            font_atlas: Default::default()
+            font_atlas: Default::default(),
         }
     }
 }
@@ -183,5 +185,10 @@ impl Window {
                 )
                 .unwrap();
         });
+    }
+    pub fn update(&mut self) {
+        self.pixel_width = screen_width() as u32;
+        self.pixel_height = screen_height() as u32;
+        self.logical_ppi = screen_dpi_scale();
     }
 }
