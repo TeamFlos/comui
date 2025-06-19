@@ -57,7 +57,7 @@ async fn main() {
 
 let mut window = Window::default();
     loop {
-        clear_background(BLACK);
+        clear_background(BLUE);
         main_view.render(&Matrix3::identity(), &mut window);
         tracing::event!(
             tracing::Level::INFO,

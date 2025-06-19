@@ -1,17 +1,12 @@
 use cosmic_text::{Attrs, Buffer, Metrics, Shaping};
 use macroquad::{
-    color::Color,
-    math::vec2,
-    miniquad::{MipmapFilterMode, TextureFormat, TextureKind, TextureParams, TextureWrap},
-    texture::{FilterMode, Image, draw_texture_ex},
-    window::get_internal_gl,
+    color::Color, math::vec2, prelude::debug, text::draw_text, texture::{draw_texture_ex, DrawTextureParams}
 };
 use tracing::{Level, instrument, span};
 
 use crate::{
-    shading::IntoShading,
-    utils::{Point, cosmic_color_to_macroquad_color, macroquad_color_to_cosmic_color},
-    window::{VertexBuilder, Window},
+    utils::Point,
+    window::Window,
 };
 
 pub struct Label {
@@ -90,63 +85,39 @@ impl Label {
         buffer_borrowed.set_text(&self.text, &attrs, Shaping::Advanced);
         // Perform shaping as desired
         buffer_borrowed.shape_until_scroll(true);
-        let logical_ppi = target.logical_ppi;
 
         let span = span!(Level::DEBUG, "Draw buffers");
         let _enter = span.enter();
         for run in buffer.layout_runs() {
             for glyph in run.glyphs.iter() {
                 let physical_glyph = glyph.physical((0., 0.), 1.0);
-
-                let glyph_color = match glyph.color_opt {
-                    Some(some) => some,
-                    None => macroquad_color_to_cosmic_color(self.color),
-                };
-                let img = target
-                    .swash_cache
-                    .get_image(&mut target.font_system, physical_glyph.cache_key)
-                    .as_ref()
-                    .expect("no target glyph");
-
-                let texture = match img.content {
-                    cosmic_text::SwashContent::Color => macroquad::texture::Texture2D::from_rgba8(
-                        img.placement.width as u16,
-                        img.placement.height as u16,
-                        &img.data,
-                    ),
-                    cosmic_text::SwashContent::Mask => {
-                        let ctx = unsafe { get_internal_gl() }.quad_context;
-                        let id = ctx.new_texture_from_data_and_format(
-                            &img.data,
-                            TextureParams {
-                                kind: TextureKind::Texture2D,
-                                width: img.placement.width,
-                                height: img.placement.height,
-                                format: TextureFormat::Alpha,
-                                wrap: TextureWrap::Clamp,
-                                min_filter: FilterMode::Linear,
-                                mag_filter: FilterMode::Linear,
-                                mipmap_filter: MipmapFilterMode::None,
-                                allocate_mipmaps: false,
-                                sample_count: 1,
-                            },
-                        );
-                        macroquad::texture::Texture2D::from_miniquad_texture(id)
-                    }
-                    _ => todo!(),
-                };
+                // cache if needed
+                target.font_atlas.cache_glyph(
+                    physical_glyph.cache_key,
+                    &mut target.swash_cache,
+                    &mut target.font_system,
+                );
+                let rect = target
+                    .font_atlas
+                    .get_glyph(physical_glyph.cache_key)
+                    .unwrap();
+                let placement = target
+                    .font_atlas
+                    .get_placement(physical_glyph.cache_key)
+                    .unwrap();
+                let texture = macroquad::texture::Texture2D::from_miniquad_texture(
+                    target.font_atlas.texture(),
+                );
                 draw_texture_ex(
                     &texture,
-                    physical_glyph.x as f32 + img.placement.left as f32,
-                    physical_glyph.y as f32 + run.line_y - img.placement.top as f32,
-                    cosmic_color_to_macroquad_color(glyph_color),
-                    macroquad::prelude::DrawTextureParams {
-                        dest_size: Some(vec2(
-                            img.placement.width as f32,
-                            img.placement.height as f32,
-                        )),
+                    (physical_glyph.x + placement.left) as f32,
+                    (physical_glyph.y - placement.top) as f32 + run.line_y,
+                    self.color,
+                    DrawTextureParams {
+                        dest_size: Some(vec2(placement.width as f32, placement.height as f32)),
+                        source: Some(rect),
                         ..Default::default()
-                    },
+                    }
                 );
             }
         }
