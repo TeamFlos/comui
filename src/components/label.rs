@@ -117,11 +117,14 @@ impl Label {
                 );
                 draw_texture_ex(
                     &texture,
-                    (physical_glyph.x + placement.left) as f32,
-                    (physical_glyph.y - placement.top) as f32 + run.line_y,
+                    (physical_glyph.x + placement.left) as f32 / target.logical_ppi,
+                    ((physical_glyph.y - placement.top) as f32 + run.line_y) / target.logical_ppi,
                     self.color,
                     DrawTextureParams {
-                        dest_size: Some(vec2(placement.width as f32, placement.height as f32)),
+                        dest_size: Some(
+                            vec2(placement.width as f32, placement.height as f32)
+                                / target.logical_ppi,
+                        ),
                         source: Some(rect),
                         ..Default::default()
                     },
