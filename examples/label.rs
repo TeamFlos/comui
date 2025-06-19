@@ -55,7 +55,7 @@ async fn main() {
     )
     .expect("setup tracy layer");
 
-let mut window = Window::default();
+    let mut window = Window::default();
     loop {
         clear_background(BLUE);
         main_view.render(&Matrix3::identity(), &mut window);
