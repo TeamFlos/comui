@@ -1,5 +1,11 @@
 use cosmic_text::{Attrs, Buffer, Metrics, Shaping};
-use macroquad::color::Color;
+use macroquad::{
+    color::Color,
+    math::vec2,
+    miniquad::{MipmapFilterMode, TextureFormat, TextureKind, TextureParams, TextureWrap},
+    texture::{FilterMode, Image, draw_texture_ex},
+    window::get_internal_gl,
+};
 use tracing::{Level, instrument, span};
 
 use crate::{
@@ -72,56 +78,78 @@ impl Label {
         let font_system = &mut target.font_system;
         let mut buffer = Buffer::new(font_system, metrics);
         // Borrow buffer together with the font system for more convenient method calls
-        let mut buffer = buffer.borrow_with(font_system);
+        let mut buffer_borrowed = buffer.borrow_with(font_system);
         // Set a size for the text buffer, in pixels
-        buffer.set_size(
+        buffer_borrowed.set_size(
             self.area_width.map(|w| w * target.logical_ppi),
             self.area_height.map(|h| h * target.logical_ppi),
         );
         // Attributes indicate what font to choose
         let attrs = Attrs::new();
         // Add some text!
-        buffer.set_text(&self.text, &attrs, Shaping::Advanced);
+        buffer_borrowed.set_text(&self.text, &attrs, Shaping::Advanced);
         // Perform shaping as desired
-        buffer.shape_until_scroll(true);
+        buffer_borrowed.shape_until_scroll(true);
         let logical_ppi = target.logical_ppi;
 
         let span = span!(Level::DEBUG, "Draw buffers");
         let _enter = span.enter();
-        // Draw the buffer
-        buffer.draw(
-            &mut target.swash_cache,
-            macroquad_color_to_cosmic_color(self.color),
-            move |x, y, w, h, color| {
-                // We need this workaround to make the borrow checker happy,
-                // as drawing and buffer.borrow_with cannot be used together.
-                // They are borrowing different parts of `Window`.
-                let mut x = x as f32;
-                let mut y = y as f32;
-                let mut w = w as f32;
-                let mut h = h as f32;
-                x += origin.x;
-                y += origin.y;
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs.iter() {
+                let physical_glyph = glyph.physical((0., 0.), 1.0);
 
-                // high-dpi support
-                // TODO: this syntax is too ugly.
-                x /= logical_ppi;
-                y /= logical_ppi;
-                w /= logical_ppi;
-                h /= logical_ppi;
-
-                {
-                    VertexBuilder::new(cosmic_color_to_macroquad_color(color).into_shading())
-                        .add(x, y, 1.0)
-                        .add(x, y + h, 1.0)
-                        .add(x + w, y + h, 1.0)
-                        .add(x + w, y, 1.0)
-                        .triangle(2, 1, 0)
-                        .triangle(0, 2, 3)
-                        .commit();
+                let glyph_color = match glyph.color_opt {
+                    Some(some) => some,
+                    None => macroquad_color_to_cosmic_color(self.color),
                 };
-            },
-        );
+                let img = target
+                    .swash_cache
+                    .get_image(&mut target.font_system, physical_glyph.cache_key)
+                    .as_ref()
+                    .expect("no target glyph");
+
+                let texture = match img.content {
+                    cosmic_text::SwashContent::Color => macroquad::texture::Texture2D::from_rgba8(
+                        img.placement.width as u16,
+                        img.placement.height as u16,
+                        &img.data,
+                    ),
+                    cosmic_text::SwashContent::Mask => {
+                        let ctx = unsafe { get_internal_gl() }.quad_context;
+                        let id = ctx.new_texture_from_data_and_format(
+                            &img.data,
+                            TextureParams {
+                                kind: TextureKind::Texture2D,
+                                width: img.placement.width,
+                                height: img.placement.height,
+                                format: TextureFormat::Alpha,
+                                wrap: TextureWrap::Clamp,
+                                min_filter: FilterMode::Linear,
+                                mag_filter: FilterMode::Linear,
+                                mipmap_filter: MipmapFilterMode::None,
+                                allocate_mipmaps: false,
+                                sample_count: 1,
+                            },
+                        );
+                        macroquad::texture::Texture2D::from_miniquad_texture(id)
+                    }
+                    _ => todo!(),
+                };
+                draw_texture_ex(
+                    &texture,
+                    physical_glyph.x as f32 + img.placement.left as f32,
+                    physical_glyph.y as f32 + run.line_y - img.placement.top as f32,
+                    cosmic_color_to_macroquad_color(glyph_color),
+                    macroquad::prelude::DrawTextureParams {
+                        dest_size: Some(vec2(
+                            img.placement.width as f32,
+                            img.placement.height as f32,
+                        )),
+                        ..Default::default()
+                    },
+                );
+            }
+        }
     }
 }
 impl crate::component::Component for Label {
