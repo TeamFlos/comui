@@ -48,9 +48,23 @@ fn config() -> macroquad::prelude::Conf {
 #[macroquad::main(config)]
 async fn main() {
     let mut main_view = Main::default();
+    use tracing_subscriber::layer::SubscriberExt;
+
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
+    )
+    .expect("setup tracy layer");
+
+    let mut window = Window::default();
     loop {
-        clear_background(BLACK);
-        main_view.render(&Matrix3::identity(), &mut Window::default());
+        clear_background(BLUE);
+        main_view.render(&Matrix3::identity(), &mut window);
+        window.update();
+        tracing::event!(
+            tracing::Level::INFO,
+            message = "finished frame",
+            tracy.frame_mark = true
+        );
         next_frame().await
     }
 }

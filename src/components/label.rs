@@ -1,11 +1,14 @@
-use cosmic_text::{Attrs, Buffer, Metrics, Shaping};
-use macroquad::color::Color;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
-use crate::{
-    shading::IntoShading,
-    utils::{Point, cosmic_color_to_macroquad_color, macroquad_color_to_cosmic_color},
-    window::{VertexBuilder, Window},
+use cosmic_text::{Attrs, Buffer, Metrics, Shaping};
+use macroquad::{
+    color::Color,
+    math::vec2,
+    texture::{DrawTextureParams, draw_texture_ex},
 };
+use tracing::{Level, instrument, span};
+
+use crate::{utils::Point, window::Window};
 
 pub struct Label {
     pub text: String,
@@ -18,7 +21,22 @@ pub struct Label {
     /// Set it to `None` for infinite size.
     pub area_height: Option<f32>,
     pub color: Color,
+    cached_buffer: Option<(u64, Buffer)>,
 }
+
+#[derive(Hash)]
+struct HashingKey {
+    pub font_size: u32,
+    pub line_height: u32,
+    /// The width for the area to show the label.
+    /// Set it to `None` for infinite size.
+    pub area_width: Option<u32>,
+    /// The height for the area to show the label.
+    /// Set it to `None` for infinite size.
+    pub area_height: Option<u32>,
+    // pub color: Color,
+}
+
 impl Default for Label {
     fn default() -> Self {
         Self {
@@ -28,6 +46,7 @@ impl Default for Label {
             area_height: None,
             area_width: None,
             color: Color::from_rgba(255, 255, 255, 255), // Default white color
+            cached_buffer: None,
         }
     }
 }
@@ -58,12 +77,69 @@ impl Label {
         self.area_width = Some(width);
         self
     }
+
     pub fn with_preferred_height(mut self, height: f32) -> Self {
         self.area_height = Some(height);
         self
     }
 
-    pub fn render_text(&self, target: &mut Window, origin: Point) {
+    #[instrument(skip(self, target))]
+    pub fn render_text(&mut self, target: &mut Window, origin: Point) {
+        let (hash, buffer) = self
+            .cached_buffer
+            .take()
+            .and_then(|(hash, buffer)| {
+                if hash == self.state_hash() {
+                    Some((hash, buffer))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(self.layout_text(target));
+        let span = span!(Level::DEBUG, "Draw buffers");
+        let _enter = span.enter();
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs.iter() {
+                let physical_glyph = glyph.physical((0., 0.), 1.0);
+                // cache if needed
+                target.font_atlas.cache_glyph(
+                    physical_glyph.cache_key,
+                    &mut target.swash_cache,
+                    &mut target.font_system,
+                );
+                let rect = target
+                    .font_atlas
+                    .get_glyph(physical_glyph.cache_key)
+                    .unwrap();
+                let placement = target
+                    .font_atlas
+                    .get_placement(physical_glyph.cache_key)
+                    .unwrap();
+                let texture = macroquad::texture::Texture2D::from_miniquad_texture(
+                    target.font_atlas.texture(),
+                );
+                draw_texture_ex(
+                    &texture,
+                    (physical_glyph.x + placement.left) as f32 / target.logical_ppi,
+                    ((physical_glyph.y - placement.top) as f32 + run.line_y) / target.logical_ppi,
+                    self.color,
+                    DrawTextureParams {
+                        dest_size: Some(
+                            vec2(placement.width as f32, placement.height as f32)
+                                / target.logical_ppi,
+                        ),
+                        source: Some(rect),
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+
+        self.cached_buffer = Some((hash, buffer));
+    }
+
+    #[instrument(skip(self, target))]
+    fn layout_text(&self, target: &mut Window) -> (u64, Buffer) {
         let metrics = Metrics::relative(
             self.font_size * target.logical_ppi,
             self.line_height / self.font_size,
@@ -71,56 +147,35 @@ impl Label {
         let font_system = &mut target.font_system;
         let mut buffer = Buffer::new(font_system, metrics);
         // Borrow buffer together with the font system for more convenient method calls
-        let mut buffer = buffer.borrow_with(font_system);
+        let mut buffer_borrowed = buffer.borrow_with(font_system);
         // Set a size for the text buffer, in pixels
-        buffer.set_size(
+        buffer_borrowed.set_size(
             self.area_width.map(|w| w * target.logical_ppi),
             self.area_height.map(|h| h * target.logical_ppi),
         );
         // Attributes indicate what font to choose
         let attrs = Attrs::new();
         // Add some text!
-        buffer.set_text(&self.text, &attrs, Shaping::Advanced);
+        buffer_borrowed.set_text(&self.text, &attrs, Shaping::Advanced);
         // Perform shaping as desired
-        buffer.shape_until_scroll(true);
-        let logical_ppi = target.logical_ppi;
+        buffer_borrowed.shape_until_scroll(true);
+        (self.state_hash(), buffer)
+    }
 
-        // Draw the buffer (for performance, instead use SwashCache directly)
-        buffer.draw(
-            &mut target.swash_cache,
-            macroquad_color_to_cosmic_color(self.color),
-            move |x, y, w, h, color| {
-                // We need this workaround to make the borrow checker happy,
-                // as drawing and buffer.borrow_with cannot be used together.
-                // They are borrowing different parts of `Window`.
-                let mut x = x as f32;
-                let mut y = y as f32;
-                let mut w = w as f32;
-                let mut h = h as f32;
-                x += origin.x;
-                y += origin.y;
-
-                // high-dpi support
-                // TODO: this syntax is too ugly.
-                x /= logical_ppi;
-                y /= logical_ppi;
-                w /= logical_ppi;
-                h /= logical_ppi;
-
-                {
-                    VertexBuilder::new(cosmic_color_to_macroquad_color(color).into_shading())
-                        .add(x, y, 1.0)
-                        .add(x, y + h, 1.0)
-                        .add(x + w, y + h, 1.0)
-                        .add(x + w, y, 1.0)
-                        .triangle(2, 1, 0)
-                        .triangle(0, 2, 3)
-                        .commit();
-                };
-            },
-        );
+    fn state_hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        let hashing_key = HashingKey {
+            font_size: self.font_size.to_bits(),
+            line_height: self.line_height.to_bits(),
+            area_height: self.area_height.map(|i| i.to_bits()),
+            area_width: self.area_width.map(|i| i.to_bits()),
+        };
+        self.text.hash(&mut hasher);
+        hashing_key.hash(&mut hasher);
+        hasher.finish()
     }
 }
+
 impl crate::component::Component for Label {
     fn render(&mut self, tr: &crate::utils::Transform, target: &mut Window) {
         self.render_text(target, tr.transform_point(&Point::origin()));
