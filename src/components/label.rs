@@ -77,22 +77,25 @@ impl Label {
         self.area_width = Some(width);
         self
     }
+
     pub fn with_preferred_height(mut self, height: f32) -> Self {
         self.area_height = Some(height);
         self
     }
+
     #[instrument(skip(self, target))]
     pub fn render_text(&mut self, target: &mut Window, origin: Point) {
-        if self.cached_buffer.is_none() {
-            self.cached_buffer = Some(self.layout_text(target));
-        }
-        let hash = self.cached_buffer.as_mut().unwrap().0;
-        if self.state_hash() != hash {
-            let result = self.layout_text(target);
-            self.cached_buffer = Some(result);
-        }
-        let buffer_cache = self.cached_buffer.as_mut().unwrap();
-        let (_, buffer) = buffer_cache;
+        let (hash, buffer) = self
+            .cached_buffer
+            .take()
+            .and_then(|(hash, buffer)| {
+                if hash == self.state_hash() {
+                    Some((hash, buffer))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(self.layout_text(target));
         let span = span!(Level::DEBUG, "Draw buffers");
         let _enter = span.enter();
         for run in buffer.layout_runs() {
@@ -131,7 +134,10 @@ impl Label {
                 );
             }
         }
+
+        self.cached_buffer = Some((hash, buffer));
     }
+
     #[instrument(skip(self, target))]
     fn layout_text(&self, target: &mut Window) -> (u64, Buffer) {
         let metrics = Metrics::relative(
@@ -169,6 +175,7 @@ impl Label {
         hasher.finish()
     }
 }
+
 impl crate::component::Component for Label {
     fn render(&mut self, tr: &crate::utils::Transform, target: &mut Window) {
         self.render_text(target, tr.transform_point(&Point::origin()));
