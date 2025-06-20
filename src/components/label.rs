@@ -1,6 +1,6 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use cosmic_text::{Align, Attrs, Buffer, Metrics, Shaping};
+use cosmic_text::{Attrs, Buffer, Metrics, Shaping};
 use macroquad::{
     color::Color,
     math::vec2,
@@ -9,6 +9,8 @@ use macroquad::{
 use tracing::{Level, instrument, span};
 
 use crate::{utils::Point, window::Window};
+
+pub use cosmic_text::Align;
 
 pub struct Label {
     pub text: String,
