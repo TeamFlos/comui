@@ -1,6 +1,6 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use cosmic_text::{Attrs, Buffer, Metrics, Shaping};
+use cosmic_text::{Align, Attrs, Buffer, Metrics, Shaping};
 use macroquad::{
     color::Color,
     math::vec2,
@@ -21,7 +21,9 @@ pub struct Label {
     /// Set it to `None` for infinite size.
     pub area_height: Option<f32>,
     pub color: Color,
+    pub align: Align,
     cached_buffer: Option<(u64, Buffer)>,
+    computed_height: f32,
 }
 
 #[derive(Hash)]
@@ -47,6 +49,8 @@ impl Default for Label {
             area_width: None,
             color: Color::from_rgba(255, 255, 255, 255), // Default white color
             cached_buffer: None,
+            computed_height: 0.0,
+            align: Align::Left,
         }
     }
 }
@@ -82,6 +86,10 @@ impl Label {
         self.area_height = Some(height);
         self
     }
+    pub fn with_align(mut self, align: Align) -> Self {
+        self.align = align;
+        self
+    }
 
     #[instrument(skip(self, target))]
     pub fn render_text(&mut self, target: &mut Window, origin: Point) {
@@ -98,6 +106,7 @@ impl Label {
             .unwrap_or(self.layout_text(target));
         let span = span!(Level::DEBUG, "Draw buffers");
         let _enter = span.enter();
+        let mut last = None;
         for run in buffer.layout_runs() {
             for glyph in run.glyphs.iter() {
                 let physical_glyph = glyph.physical((0., 0.), 1.0);
@@ -121,7 +130,8 @@ impl Label {
                 draw_texture_ex(
                     &texture,
                     (physical_glyph.x + placement.left) as f32 / target.logical_ppi + origin.x,
-                    ((physical_glyph.y - placement.top) as f32 + run.line_y) / target.logical_ppi + origin.y,
+                    ((physical_glyph.y - placement.top) as f32 + run.line_y) / target.logical_ppi
+                        + origin.y,
                     self.color,
                     DrawTextureParams {
                         dest_size: Some(
@@ -133,9 +143,32 @@ impl Label {
                     },
                 );
             }
+            last = Some(run)
         }
-
+        self.computed_height = last
+            .map(|run| run.line_top + run.line_height)
+            .unwrap_or_default();
         self.cached_buffer = Some((hash, buffer));
+    }
+
+    pub fn latest_layout(&mut self, target: &mut Window) -> &mut Buffer {
+        self.cached_buffer = Some(
+            self.cached_buffer
+                .take()
+                .and_then(|(hash, buffer)| {
+                    if hash == self.state_hash() {
+                        Some((hash, buffer))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(self.layout_text(target)),
+        );
+        &mut self.cached_buffer.as_mut().unwrap().1
+    }
+
+    pub fn computed_height(&self) -> f32 {
+        self.computed_height
     }
 
     #[instrument(skip(self, target))]
@@ -156,7 +189,12 @@ impl Label {
         // Attributes indicate what font to choose
         let attrs = Attrs::new();
         // Add some text!
-        buffer_borrowed.set_text(&self.text, &attrs, Shaping::Advanced);
+        buffer_borrowed.set_rich_text(
+            [(self.text.as_str(), attrs.clone())],
+            &attrs,
+            Shaping::Advanced,
+            Some(self.align),
+        );
         // Perform shaping as desired
         buffer_borrowed.shape_until_scroll(true);
         (self.state_hash(), buffer)
@@ -172,6 +210,7 @@ impl Label {
         };
         self.text.hash(&mut hasher);
         hashing_key.hash(&mut hasher);
+        self.align.to_string().hash(&mut hasher);
         hasher.finish()
     }
 }
