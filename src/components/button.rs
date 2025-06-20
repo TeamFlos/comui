@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use macroquad::input::TouchPhase;
 
@@ -26,8 +26,8 @@ impl Default for QuadButton {
         Self {
             pressed: false,
             touch_id: None,
-            press_start_at: Instant::now(),
-            release_start_at: Instant::now(),
+            press_start_at: Instant::now() - Duration::from_secs(100),
+            release_start_at: Instant::now() - Duration::from_secs(100),
             triggered: false,
         }
     }
