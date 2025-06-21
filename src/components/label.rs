@@ -4,6 +4,7 @@ use cosmic_text::{Attrs, Buffer, Metrics, Shaping};
 use macroquad::{
     color::Color,
     math::vec2,
+    prelude::warn,
     texture::{DrawTextureParams, draw_texture_ex},
 };
 use tracing::{Level, instrument, span};
@@ -23,9 +24,13 @@ pub struct Label {
     /// Set it to `None` for infinite size.
     pub area_height: Option<f32>,
     pub color: Color,
-    pub align: Align,
-    cached_buffer: Option<(u64, Buffer)>,
-    computed_height: f32,
+    /// (0, 0) is the top-left corner of the texture,
+    /// (0.5, 0.5) is the center of the texture,
+    /// (1, 1) is the bottom-right corner of the texture.
+    pub texture_align: (f32, f32),
+    /// The alignment of the text.
+    pub text_align: Align,
+    cached_buffer: Option<(u64, Buffer, (f32, f32))>,
 }
 
 #[derive(Hash)]
@@ -51,8 +56,8 @@ impl Default for Label {
             area_width: None,
             color: Color::from_rgba(255, 255, 255, 255), // Default white color
             cached_buffer: None,
-            computed_height: 0.0,
-            align: Align::Left,
+            text_align: Align::Left,
+            texture_align: (0.5, 0.5),
         }
     }
 }
@@ -88,19 +93,25 @@ impl Label {
         self.area_height = Some(height);
         self
     }
+
     pub fn with_align(mut self, align: Align) -> Self {
-        self.align = align;
+        self.text_align = align;
+        self
+    }
+
+    pub fn with_texture_align(mut self, align: (f32, f32)) -> Self {
+        self.texture_align = align;
         self
     }
 
     #[instrument(skip(self, target))]
     pub fn render_text(&mut self, target: &mut Window, origin: Point) {
-        let (hash, buffer) = self
+        let (hash, buffer, (text_block_w, text_block_h)) = self
             .cached_buffer
             .take()
-            .and_then(|(hash, buffer)| {
+            .and_then(|(hash, buffer, size)| {
                 if hash == self.state_hash() {
-                    Some((hash, buffer))
+                    Some((hash, buffer, size))
                 } else {
                     None
                 }
@@ -108,7 +119,13 @@ impl Label {
             .unwrap_or(self.layout_text(target));
         let span = span!(Level::DEBUG, "Draw buffers");
         let _enter = span.enter();
-        let mut last = None;
+        let text_block = {
+            let (w, h) = buffer.size();
+            vec2(
+                w.unwrap_or(text_block_w) / target.logical_ppi,
+                h.unwrap_or(text_block_h) / target.logical_ppi,
+            )
+        };
         for run in buffer.layout_runs() {
             for glyph in run.glyphs.iter() {
                 let physical_glyph = glyph.physical((0., 0.), 1.0);
@@ -129,37 +146,34 @@ impl Label {
                 let texture = macroquad::texture::Texture2D::from_miniquad_texture(
                     target.font_atlas.texture(),
                 );
+                let target_size =
+                    vec2(placement.width as f32, placement.height as f32) / target.logical_ppi;
                 draw_texture_ex(
                     &texture,
-                    (physical_glyph.x + placement.left) as f32 / target.logical_ppi + origin.x,
+                    (physical_glyph.x + placement.left) as f32 / target.logical_ppi + origin.x
+                        - self.texture_align.0 * text_block.x,
                     ((physical_glyph.y - placement.top) as f32 + run.line_y) / target.logical_ppi
-                        + origin.y,
+                        + origin.y
+                        - self.texture_align.1 * text_block.y,
                     self.color,
                     DrawTextureParams {
-                        dest_size: Some(
-                            vec2(placement.width as f32, placement.height as f32)
-                                / target.logical_ppi,
-                        ),
+                        dest_size: Some(target_size),
                         source: Some(rect),
                         ..Default::default()
                     },
                 );
             }
-            last = Some(run)
         }
-        self.computed_height = last
-            .map(|run| run.line_top + run.line_height)
-            .unwrap_or_default();
-        self.cached_buffer = Some((hash, buffer));
+        self.cached_buffer = Some((hash, buffer, (text_block_w, text_block_h)));
     }
 
     pub fn latest_layout(&mut self, target: &mut Window) -> &mut Buffer {
         self.cached_buffer = Some(
             self.cached_buffer
                 .take()
-                .and_then(|(hash, buffer)| {
+                .and_then(|(hash, buffer, size)| {
                     if hash == self.state_hash() {
-                        Some((hash, buffer))
+                        Some((hash, buffer, size))
                     } else {
                         None
                     }
@@ -170,11 +184,15 @@ impl Label {
     }
 
     pub fn computed_height(&self) -> f32 {
-        self.computed_height
+        self.cached_buffer.as_ref().map_or(0.0, |(_, _, (_, h))| *h)
     }
 
     #[instrument(skip(self, target))]
-    fn layout_text(&self, target: &mut Window) -> (u64, Buffer) {
+    /// Returns:
+    /// - `u64`: a hash of the current state of the label
+    /// - `Buffer`: the cosmic text buffer containing the text layout
+    /// - `(f32, f32)`: the width and height of the text block in pixels
+    fn layout_text(&self, target: &mut Window) -> (u64, Buffer, (f32, f32)) {
         let metrics = Metrics::relative(
             self.font_size * target.logical_ppi,
             self.line_height / self.font_size,
@@ -195,11 +213,28 @@ impl Label {
             [(self.text.as_str(), attrs.clone())],
             &attrs,
             Shaping::Advanced,
-            Some(self.align),
+            Some(self.text_align),
         );
         // Perform shaping as desired
         buffer_borrowed.shape_until_scroll(true);
-        (self.state_hash(), buffer)
+        // Get the size of the text block in pixels
+        let size = {
+            let mut idx = 0;
+            let mut max_w = 0.;
+            while let Some(line) = buffer_borrowed.line_layout(idx) {
+                idx += 1;
+                line.iter().for_each(|l| {
+                    max_w = f32::max(max_w, l.w);
+                });
+            }
+            let max_h = buffer_borrowed
+                .layout_runs()
+                .last()
+                .map_or(0.0, |run| run.line_y);
+            (max_w, max_h)
+        };
+
+        (self.state_hash(), buffer, size)
     }
 
     fn state_hash(&self) -> u64 {
@@ -212,7 +247,7 @@ impl Label {
         };
         self.text.hash(&mut hasher);
         hashing_key.hash(&mut hasher);
-        self.align.to_string().hash(&mut hasher);
+        self.text_align.to_string().hash(&mut hasher);
         hasher.finish()
     }
 }
