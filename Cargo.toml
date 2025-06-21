@@ -3,6 +3,10 @@ name = "comui"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+layout-debug = []
+
 [dependencies]
 anyhow = "1.0.98"
 cosmic-text = "0.14.2"

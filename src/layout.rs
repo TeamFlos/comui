@@ -72,6 +72,48 @@ impl<T: Layout> Component for T {
         for (child_tr, child) in self.components() {
             let tr = tr * child_tr;
             child.render(&tr, target);
+            #[cfg(feature = "layout-debug")]
+            {
+                // TODO: simplify this
+                use lyon::{
+                    geom::traits::Transformation,
+                    math::Box2D,
+                    path::{Builder, Winding},
+                };
+
+                use crate::shading::IntoShading;
+                let mut builder = Builder::new();
+                builder.add_rectangle(
+                    &Box2D::new((-0.5, -0.5).into(), (0.5, 0.5).into()),
+                    Winding::Positive,
+                );
+
+                struct MyTransform(Transform);
+
+                impl Transformation<f32> for MyTransform {
+                    fn transform_point(&self, p: lyon::geom::Point<f32>) -> lyon::geom::Point<f32> {
+                        let point = nalgebra::Point2::new(p.x, p.y);
+                        let new_point = self.0.transform_point(&point);
+                        lyon::geom::Point::new(new_point.x, new_point.y)
+                    }
+
+                    fn transform_vector(
+                        &self,
+                        v: lyon::geom::Vector<f32>,
+                    ) -> lyon::geom::Vector<f32> {
+                        let vector = nalgebra::Vector2::new(v.x, v.y);
+                        let new_vector = self.0.transform_vector(&vector);
+                        lyon::geom::Vector::new(new_vector.x, new_vector.y)
+                    }
+                }
+
+                target.stroke_path(
+                    &builder.build().transformed(&MyTransform(tr)),
+                    1.0,
+                    1.0,
+                    macroquad::color::RED.into_shading(),
+                );
+            }
         }
         self.after_render(tr, target);
     }
