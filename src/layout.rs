@@ -4,6 +4,8 @@ use crate::component::Component;
 use crate::utils::Transform;
 use crate::window::Window;
 
+const LAYOUT_DEBUG: bool = option_env!("COMUI_LAYOUT_DEBUG").is_some();
+
 /// Notice that here the transform: tr: touch.position -> new_touch.position
 fn transform_touch(touch: &Touch, tr: &Transform) -> Touch {
     let pos = nalgebra::Point2::new(touch.position.x, touch.position.y);
@@ -106,13 +108,14 @@ impl<T: Layout> Component for T {
                         lyon::geom::Vector::new(new_vector.x, new_vector.y)
                     }
                 }
-
-                target.stroke_path(
-                    &builder.build().transformed(&MyTransform(tr)),
-                    1.0,
-                    1.0,
-                    macroquad::color::RED.into_shading(),
-                );
+                if LAYOUT_DEBUG {
+                    target.stroke_path(
+                        &builder.build().transformed(&MyTransform(tr)),
+                        1.0,
+                        1.0,
+                        macroquad::color::RED.into_shading(),
+                    );
+                }
             }
         }
         self.after_render(tr, target);
