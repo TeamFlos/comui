@@ -62,9 +62,9 @@ impl Default for Label {
     }
 }
 impl Label {
-    pub fn new(text: &str) -> Self {
+    pub fn new(text: impl AsRef<str>) -> Self {
         Self {
-            text: text.to_string(),
+            text: text.as_ref().to_string(),
             ..Default::default()
         }
     }
