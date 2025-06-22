@@ -112,9 +112,9 @@ impl<T: Layout> Component for T {
                 if LAYOUT_DEBUG {
                     target.stroke_path(
                         &builder.build().transformed(&MyTransform(tr)),
-                        1.0,
-                        1.0,
                         macroquad::color::RED.into_shading(),
+                        1.0,
+                        1.0,
                     );
                 }
             }
