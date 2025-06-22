@@ -16,7 +16,7 @@ use macroquad::{
 
 use crate::{
     shading::{ShadedConstructor, Shading},
-    text::FontAtlas,
+    text::Atlas,
     utils::Point,
 };
 
@@ -72,7 +72,7 @@ pub struct Window {
 
     pub(crate) font_system: cosmic_text::FontSystem,
     pub(crate) swash_cache: cosmic_text::SwashCache,
-    pub(crate) font_atlas: FontAtlas,
+    pub(crate) font_atlas: Atlas,
 }
 
 impl Default for Window {

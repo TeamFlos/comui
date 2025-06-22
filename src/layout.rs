@@ -4,6 +4,7 @@ use crate::component::Component;
 use crate::utils::Transform;
 use crate::window::Window;
 
+#[cfg(feature = "layout-debug")]
 const LAYOUT_DEBUG: bool = option_env!("COMUI_LAYOUT_DEBUG").is_some();
 
 /// Notice that here the transform: tr: touch.position -> new_touch.position

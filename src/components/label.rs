@@ -143,13 +143,10 @@ impl Label {
                     .font_atlas
                     .get_placement(physical_glyph.cache_key)
                     .unwrap();
-                let texture = macroquad::texture::Texture2D::from_miniquad_texture(
-                    target.font_atlas.texture(),
-                );
                 let target_size =
                     vec2(placement.width as f32, placement.height as f32) / target.logical_ppi;
                 draw_texture_ex(
-                    &texture,
+                    &target.font_atlas.texture,
                     (physical_glyph.x + placement.left) as f32 / target.logical_ppi + origin.x
                         - self.texture_align.0 * text_block.x,
                     ((physical_glyph.y - placement.top) as f32 + run.line_y) / target.logical_ppi

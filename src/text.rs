@@ -1,229 +1,121 @@
 //! [`Atlas`], [`Sprite`] and [`SpriteKey`] are copied from macroquad source code,
 //! licensed under MIT OR APACHE-2.0.
 use cosmic_text::{CacheKey, FontSystem, Placement, SwashCache};
-use macroquad::{
-    color::Color,
-    math::Rect,
-    miniquad::{self, TextureId},
-    texture::Image,
-    window::get_internal_gl,
+use guillotiere::{
+    AllocId, Allocation, AtlasAllocator,
+    euclid::{Box2D, Size2D, UnknownUnit},
+    point2, size2,
 };
+use lru::LruCache;
+use macroquad::{
+    math::Rect,
+    miniquad::native::gl,
+    texture::{Image, Texture2D, render_target},
+};
+use tracing::trace;
 
-use std::collections::HashMap;
-
-#[derive(Debug, Clone, Copy)]
-pub struct Sprite {
-    pub rect: Rect,
+/// For weird rect like 1x0
+enum CAllocation {
+    Real(Allocation),
+    Fake,
 }
 
-#[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
-pub enum SpriteKey {
-    Texture(miniquad::TextureId),
-    Id(u64),
-}
-pub struct Atlas {
-    texture: miniquad::TextureId,
-    pub(crate) image: Image,
-    pub sprites: HashMap<SpriteKey, Sprite>,
-    cursor_x: u16,
-    cursor_y: u16,
-    max_line_height: u16,
-
-    pub dirty: bool,
-
-    filter: miniquad::FilterMode,
-
-    unique_id: u64,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CAllocId {
+    Real(AllocId),
+    Fake,
 }
 
-impl Drop for Atlas {
-    fn drop(&mut self) {
-        let ctx = unsafe { get_internal_gl() }.quad_context;
-        ctx.delete_texture(self.texture);
+impl CAllocation {
+    pub fn rect(&self) -> Box2D<i32, UnknownUnit> {
+        match self {
+            CAllocation::Real(alloc) => alloc.rectangle,
+            CAllocation::Fake => Box2D {
+                min: point2(0, 0),
+                max: point2(0, 0),
+            },
+        }
+    }
+
+    pub fn id(&self) -> CAllocId {
+        match self {
+            CAllocation::Real(alloc) => CAllocId::Real(alloc.id),
+            CAllocation::Fake => CAllocId::Fake,
+        }
     }
 }
 
-impl Atlas {
-    // pixel gap between glyphs in the atlas
-    const GAP: u16 = 2;
-    // well..
-    const UNIQUENESS_OFFSET: u64 = 100000;
-
-    pub fn new() -> Atlas {
-        let ctx = unsafe { get_internal_gl() }.quad_context;
-        let image = Image::gen_image_color(512, 512, Color::new(0.0, 0.0, 0.0, 0.0));
-        let texture = ctx.new_texture_from_rgba8(image.width, image.height, &image.bytes);
-        ctx.texture_set_filter(
-            texture,
-            miniquad::FilterMode::Nearest,
-            miniquad::MipmapFilterMode::None,
+fn alloc_or_evict(
+    allocator: &mut AtlasAllocator,
+    cache: &mut LruCache<CacheKey, (CAllocId, Placement)>,
+    size: Size2D<i32, UnknownUnit>,
+) -> CAllocation {
+    if size.width <= 0 || size.height <= 0 {
+        return CAllocation::Fake;
+    }
+    for _ in 0..Atlas::MAX_ALLOC_ATTEMPTS {
+        if let Some(alloc) = allocator.allocate(size) {
+            return CAllocation::Real(alloc);
+        }
+        trace!(
+            "Failed to allocate space of {}x{} in the atlas, evicting one item",
+            size.width, size.height
         );
-
-        Atlas {
-            image,
-            texture,
-            cursor_x: 0,
-            cursor_y: 0,
-            dirty: false,
-            max_line_height: 0,
-            sprites: HashMap::new(),
-            filter: miniquad::FilterMode::Nearest,
-            unique_id: Self::UNIQUENESS_OFFSET,
+        if let Some((_, (CAllocId::Real(id), _))) = cache.pop_lru() {
+            allocator.deallocate(id);
         }
     }
+    // TODO: handle this better
+    println!("Current cache size: {}", cache.len());
+    panic!(
+        "Failed to allocate space of {}x{} in the atlas after {} attempts, maybe the atlas is too small?",
+        size.width,
+        size.height,
+        Atlas::MAX_ALLOC_ATTEMPTS
+    );
+}
 
-    pub fn new_unique_id(&mut self) -> SpriteKey {
-        self.unique_id += 1;
-
-        SpriteKey::Id(self.unique_id)
-    }
-
-    pub fn set_filter(&mut self, filter_mode: miniquad::FilterMode) {
-        let ctx = unsafe { get_internal_gl() }.quad_context;
-        self.filter = filter_mode;
-        ctx.texture_set_filter(self.texture, filter_mode, miniquad::MipmapFilterMode::None);
-    }
-
-    pub fn get(&self, key: SpriteKey) -> Option<Sprite> {
-        self.sprites.get(&key).cloned()
-    }
-
-    pub const fn width(&self) -> u16 {
-        self.image.width
-    }
-
-    pub const fn height(&self) -> u16 {
-        self.image.height
-    }
-
-    pub fn texture(&mut self) -> miniquad::TextureId {
-        let ctx = unsafe { get_internal_gl() }.quad_context;
-        if self.dirty {
-            self.dirty = false;
-            let (texture_width, texture_height) = ctx.texture_size(self.texture);
-            if texture_width != self.image.width as _ || texture_height != self.image.height as _ {
-                ctx.delete_texture(self.texture);
-                self.texture = ctx.new_texture_from_rgba8(
-                    self.image.width,
-                    self.image.height,
-                    &self.image.bytes[..],
-                );
-                ctx.texture_set_filter(self.texture, self.filter, miniquad::MipmapFilterMode::None);
-            }
-            ctx.texture_update(self.texture, &self.image.bytes);
-        }
-
-        self.texture
-    }
-
-    pub fn get_uv_rect(&self, key: SpriteKey) -> Option<Rect> {
-        let ctx = unsafe { get_internal_gl() }.quad_context;
-        self.get(key).map(|sprite| {
-            let (w, h) = ctx.texture_size(self.texture);
-
-            Rect::new(
-                sprite.rect.x / w as f32,
-                sprite.rect.y / h as f32,
-                sprite.rect.w / w as f32,
-                sprite.rect.h / h as f32,
-            )
-        })
-    }
-
-    pub fn cache_sprite(&mut self, key: SpriteKey, sprite: Image) {
-        let (width, height) = (sprite.width as usize, sprite.height as usize);
-
-        let x = if self.cursor_x + (width as u16) < self.image.width {
-            if height as u16 > self.max_line_height {
-                self.max_line_height = height as u16;
-            }
-            let res = self.cursor_x + Self::GAP;
-            self.cursor_x += width as u16 + Self::GAP * 2;
-            res
-        } else {
-            self.cursor_y += self.max_line_height + Self::GAP * 2;
-            self.cursor_x = width as u16 + Self::GAP;
-            self.max_line_height = height as u16;
-            Self::GAP
-        };
-        let y = self.cursor_y;
-
-        // texture bounds exceeded
-        if y + sprite.height > self.image.height || x + sprite.width > self.image.width {
-            // reset glyph cache state
-            let sprites = self.sprites.drain().collect::<Vec<_>>();
-            self.cursor_x = 0;
-            self.cursor_y = 0;
-            self.max_line_height = 0;
-
-            let old_image = self.image.clone();
-
-            // increase font texture size
-            // note: if we tried to fit gigantic texture into a small atlas,
-            // new_width will still be not enough. But its fine, it will
-            // be regenerated on the recursion call.
-            let new_width = self.image.width * 2;
-            let new_height = self.image.height * 2;
-
-            self.image =
-                Image::gen_image_color(new_width, new_height, Color::new(0.0, 0.0, 0.0, 0.0));
-
-            // recache all previously cached symbols
-            for (key, sprite) in sprites {
-                let image = old_image.sub_image(sprite.rect);
-                self.cache_sprite(key, image);
-            }
-
-            // cache the new sprite
-            self.cache_sprite(key, sprite);
-        } else {
-            self.dirty = true;
-
-            for j in 0..height {
-                for i in 0..width {
-                    self.image.set_pixel(
-                        x as u32 + i as u32,
-                        y as u32 + j as u32,
-                        sprite.get_pixel(i as u32, j as u32),
-                    );
-                }
-            }
-
-            self.sprites.insert(
-                key,
-                Sprite {
-                    rect: Rect::new(x as f32, y as f32, width as f32, height as f32),
-                },
-            );
-        }
-    }
+pub struct Atlas {
+    allocator: AtlasAllocator,
+    pub texture: Texture2D,
+    cache: LruCache<CacheKey, (CAllocId, Placement)>,
 }
 
 impl Default for Atlas {
     fn default() -> Self {
-        Self::new()
+        let mut length: i32 = 0;
+        unsafe {
+            gl::glGetIntegerv(gl::GL_MAX_TEXTURE_SIZE, &mut length);
+        }
+        let size = size2(length, length);
+        let length = length as u32;
+        println!("Creating a new atlas with size: {}x{}", length, length);
+        let texture = render_target(length, length).texture;
+        Self {
+            allocator: AtlasAllocator::new(size),
+            texture,
+            cache: LruCache::unbounded(),
+        }
     }
 }
 
-#[derive(Default)]
-pub struct FontAtlas {
-    characters: HashMap<CacheKey, (SpriteKey, Placement)>,
-    pub(crate) atlas: Atlas,
-}
+impl Atlas {
+    const MAX_ALLOC_ATTEMPTS: usize = 32;
+    const ALLOC_GAP: i32 = 1;
 
-impl FontAtlas {
+    // TODO: `SwashCache` here is not necessary, since we always use `get_image_uncached`
     pub fn cache_glyph(
         &mut self,
         key: CacheKey,
         cache: &mut SwashCache,
         font_system: &mut FontSystem,
-    ) {
-        if self.characters.contains_key(&key) {
-            return;
+    ) -> Option<CAllocId> {
+        if let Some((alloc_id, _)) = self.cache.get(&key) {
+            return Some(*alloc_id);
         }
-        let Some(image) = cache.get_image_uncached(font_system, key) else {
-            return;
-        };
+
+        let image = cache.get_image_uncached(font_system, key)?;
+
         let cosmic_text::Placement {
             left,
             top,
@@ -231,7 +123,15 @@ impl FontAtlas {
             height,
         } = image.placement;
 
-        // the following block is copied from bevy, licensed under MIT OR APACHE-2.0
+        let alloc = alloc_or_evict(
+            &mut self.allocator,
+            &mut self.cache,
+            size2(
+                width as i32 + 2 * Self::ALLOC_GAP,
+                height as i32 + 2 * Self::ALLOC_GAP,
+            ),
+        );
+
         let data = match image.content {
             cosmic_text::SwashContent::Mask => image
                 .data
@@ -249,13 +149,19 @@ impl FontAtlas {
             width: width as u16,
             height: height as u16,
         };
-        let new_key = self.atlas.new_unique_id();
-        self.atlas.cache_sprite(new_key, quad_image);
-        self.characters.insert(
+        self.texture.update_part(
+            &quad_image,
+            alloc.rect().min.x + Self::ALLOC_GAP,
+            alloc.rect().min.y + Self::ALLOC_GAP,
+            alloc.rect().width() - 2 * Self::ALLOC_GAP,
+            alloc.rect().height() - 2 * Self::ALLOC_GAP,
+        );
+
+        self.cache.push(
             key,
             (
-                new_key,
-                cosmic_text::Placement {
+                alloc.id(),
+                Placement {
                     left,
                     top,
                     width,
@@ -263,16 +169,27 @@ impl FontAtlas {
                 },
             ),
         );
+
+        Some(alloc.id())
     }
-    pub fn get_glyph(&self, key: CacheKey) -> Option<Rect> {
-        self.characters
-            .get(&key)
-            .and_then(|(sprite_key, _)| self.atlas.get(*sprite_key).map(|s| s.rect))
+
+    pub fn get_glyph(&mut self, key: CacheKey) -> Option<Rect> {
+        self.cache.get(&key).map(|(alloc_id, _)| {
+            if let CAllocId::Real(alloc_id) = alloc_id {
+                let box2d = self.allocator[*alloc_id].to_f32();
+                Rect {
+                    x: box2d.min.x + Self::ALLOC_GAP as f32,
+                    y: box2d.min.y + Self::ALLOC_GAP as f32,
+                    w: box2d.width() - 2.0 * Self::ALLOC_GAP as f32,
+                    h: box2d.height() - 2.0 * Self::ALLOC_GAP as f32,
+                }
+            } else {
+                Rect::new(0.0, 0.0, 0.0, 0.0)
+            }
+        })
     }
-    pub fn get_placement(&self, key: CacheKey) -> Option<Placement> {
-        self.characters.get(&key).map(|c| c.1)
-    }
-    pub fn texture(&mut self) -> TextureId {
-        self.atlas.texture()
+
+    pub fn get_placement(&mut self, key: CacheKey) -> Option<Placement> {
+        self.cache.get(&key).map(|(_, placement)| *placement)
     }
 }
