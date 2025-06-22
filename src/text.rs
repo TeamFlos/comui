@@ -91,7 +91,7 @@ impl Atlas {
         let length = length.min(max_length as i32);
         let size: Size2D<i32, UnknownUnit> = size2(length, length);
         let length = length as u32;
-        println!("Creating a new atlas with size: {}x{}", length, length);
+        // println!("Creating a new atlas with size: {}x{}", length, length);
         let texture = render_target(length, length).texture;
         Self {
             allocator: AtlasAllocator::new(size),
