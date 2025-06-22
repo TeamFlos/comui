@@ -89,7 +89,7 @@ impl Default for Window {
             stroke_options: StrokeOptions::default(),
             font_system: cosmic_text::FontSystem::new(),
             swash_cache: cosmic_text::SwashCache::new(),
-            font_atlas: Default::default(),
+            font_atlas: Atlas::new(3_000),
         }
     }
 }

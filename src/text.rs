@@ -1,5 +1,6 @@
 //! [`Atlas`], [`Sprite`] and [`SpriteKey`] are copied from macroquad source code,
 //! licensed under MIT OR APACHE-2.0.
+
 use cosmic_text::{CacheKey, FontSystem, Placement, SwashCache};
 use guillotiere::{
     AllocId, Allocation, AtlasAllocator,
@@ -81,13 +82,14 @@ pub struct Atlas {
     cache: LruCache<CacheKey, (CAllocId, Placement)>,
 }
 
-impl Default for Atlas {
-    fn default() -> Self {
+impl Atlas {
+    pub fn new(max_length: u32) -> Self {
         let mut length: i32 = 0;
         unsafe {
             gl::glGetIntegerv(gl::GL_MAX_TEXTURE_SIZE, &mut length);
         }
-        let size = size2(length, length);
+        let length = length.min(max_length as i32);
+        let size: Size2D<i32, UnknownUnit> = size2(length, length);
         let length = length as u32;
         println!("Creating a new atlas with size: {}x{}", length, length);
         let texture = render_target(length, length).texture;
@@ -96,6 +98,12 @@ impl Default for Atlas {
             texture,
             cache: LruCache::unbounded(),
         }
+    }
+}
+
+impl Default for Atlas {
+    fn default() -> Self {
+        Self::new(i32::MAX as u32)
     }
 }
 
