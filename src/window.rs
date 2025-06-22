@@ -97,6 +97,10 @@ impl Default for Window {
 impl Window {
     const DEFAULT_TOLERANCE: f32 = 0.3;
 
+    pub fn set_stroke_options(&mut self, f: impl FnOnce(StrokeOptions) -> StrokeOptions) {
+        self.stroke_options = f(self.stroke_options)
+    }
+
     fn set_tolerance(&mut self, tol: f32) {
         self.fill_options.tolerance = tol / (self.pixel_width as f32);
     }
@@ -174,7 +178,7 @@ impl Window {
         });
     }
 
-    pub fn stroke_path(&mut self, path: &Path, alpha: f32, thickness: f32, shading: impl Shading) {
+    pub fn stroke_path(&mut self, path: &Path, shading: impl Shading, alpha: f32, thickness: f32) {
         self.draw_lyon(shading, alpha, |this, shaded| {
             this.stroke_options.line_width = thickness;
             this.stroke_tessellator
