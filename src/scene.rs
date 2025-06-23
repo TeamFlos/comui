@@ -2,6 +2,7 @@ use crate::{component::Component, layout::Layout, utils::Transform};
 
 pub enum NextScene {
     Pop,
+    PopN(usize),
     Replace(Box<dyn Scene>),
     Push(Box<dyn Scene>),
 }
@@ -42,6 +43,11 @@ impl Layout for SceneManager {
             match next_scene {
                 NextScene::Pop => {
                     self.scene_stack.pop();
+                }
+                NextScene::PopN(n) => {
+                    for _ in 0..n {
+                        self.scene_stack.pop();
+                    }
                 }
                 NextScene::Replace(new_scene) => {
                     self.scene_stack.pop();
